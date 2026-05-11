@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import curses
 import json
 from dataclasses import dataclass, asdict
@@ -24,24 +25,25 @@ class TypingSample:
 
 def save_sample(sample: TypingSample) -> Path:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    path = OUTPUT_DIR / f"sample_{timestamp}.json"
+    safe_prompt = "".join(ch for ch in sample.prompt.lower() if ch.isalnum() or ch in ("_", "-"))[:20]
+    suffix = f"_{safe_prompt}" if safe_prompt else ""
+    path = OUTPUT_DIR / f"sample_{timestamp}{suffix}.json"
     path.write_text(json.dumps(asdict(sample), indent=2), encoding="utf-8")
     return path
 
 
-def run_logger(stdscr: curses.window) -> TypingSample:
+def run_logger(stdscr: curses.window, prompt: str) -> TypingSample:
     curses.curs_set(1)
     stdscr.clear()
     stdscr.nodelay(False)
     stdscr.keypad(True)
 
-    prompt = "hello world"
     typed_chars: List[str] = []
     keys: List[str] = []
     key_times_ms: List[float] = []
 
     stdscr.addstr(0, 0, "Surface Typing Logger")
-    stdscr.addstr(2, 0, f"Type this sentence and press Enter when done:")
+    stdscr.addstr(2, 0, "Type the sentence below and press Enter when done:")
     stdscr.addstr(4, 0, prompt)
     stdscr.addstr(6, 0, "Typed: ")
     stdscr.refresh()
@@ -62,7 +64,7 @@ def run_logger(stdscr: curses.window) -> TypingSample:
         elif ch == "\x7f" or ch == "\b":
             if typed_chars:
                 typed_chars.pop()
-                stdscr.addstr(6, 0, "Typed: " + "".join(typed_chars) + " ")
+                stdscr.addstr(6, 0, "Typed: " + "".join(typed_chars))
                 stdscr.clrtoeol()
                 stdscr.refresh()
             continue
@@ -87,7 +89,16 @@ def run_logger(stdscr: curses.window) -> TypingSample:
 
 
 def main() -> None:
-    sample = curses.wrapper(run_logger)
+    parser = argparse.ArgumentParser(description="Typing timestamp logger")
+    parser.add_argument(
+        "--prompt",
+        type=str,
+        default="hello world",
+        help="Sentence to type",
+    )
+    args = parser.parse_args()
+
+    sample = curses.wrapper(lambda stdscr: run_logger(stdscr, args.prompt))
     path = save_sample(sample)
     print(f"Saved sample to: {path}")
     print(f"Typed text: {sample.typed_text}")
