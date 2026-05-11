@@ -7,7 +7,7 @@ import sys
 import matplotlib.pyplot as plt
 
 sys.path.append(str(Path(__file__).resolve().parent))
-from features import compute_ikt, hand_for_key  # noqa: E402
+from src.features import compute_ikt, hand_for_key  
 
 
 RAW_DIR = Path("data/raw")
