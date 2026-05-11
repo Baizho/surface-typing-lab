@@ -4,7 +4,7 @@ import csv
 import json
 from pathlib import Path
 
-from features import extract_features
+from src.features import extract_features
 
 
 RAW_DIR = Path("data/raw")
