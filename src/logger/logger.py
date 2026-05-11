@@ -3,36 +3,18 @@ from __future__ import annotations
 
 import argparse
 import curses
-import json
-from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
+
+from src.session import TypingSession, save_session, validate_session
 
 
 OUTPUT_DIR = Path("data/raw")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
-@dataclass
-class TypingSample:
-    prompt: str
-    typed_text: str
-    keys: List[str]
-    key_times_ms: List[float]
-    created_at_utc: str
-
-
-def save_sample(sample: TypingSample) -> Path:
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    safe_prompt = "".join(ch for ch in sample.prompt.lower() if ch.isalnum() or ch in ("_", "-"))[:20]
-    suffix = f"_{safe_prompt}" if safe_prompt else ""
-    path = OUTPUT_DIR / f"sample_{timestamp}{suffix}.json"
-    path.write_text(json.dumps(asdict(sample), indent=2), encoding="utf-8")
-    return path
-
-
-def run_logger(stdscr: curses.window, prompt: str) -> TypingSample:
+def run_logger(stdscr: curses.window, prompt: str) -> TypingSession:
     curses.curs_set(1)
     stdscr.clear()
     stdscr.nodelay(False)
@@ -79,12 +61,16 @@ def run_logger(stdscr: curses.window, prompt: str) -> TypingSample:
 
     typed_text = "".join(typed_chars)
 
-    return TypingSample(
+    return TypingSession(
         prompt=prompt,
         typed_text=typed_text,
         keys=keys,
         key_times_ms=key_times_ms,
         created_at_utc=datetime.now(timezone.utc).isoformat(),
+        metadata={
+            "source": "keyboard_logger",
+            "logger_version": "1.0",
+        },
     )
 
 
@@ -98,11 +84,25 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    sample = curses.wrapper(lambda stdscr: run_logger(stdscr, args.prompt))
-    path = save_sample(sample)
+    session = curses.wrapper(lambda stdscr: run_logger(stdscr, args.prompt))
+
+    issues = validate_session(session)
+    if issues:
+        print("Validation issues:")
+        for issue in issues:
+            print(f"- {issue}")
+        return
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    safe_prompt = "".join(ch for ch in session.prompt.lower() if ch.isalnum() or ch in ("_", "-"))[:20]
+    suffix = f"_{safe_prompt}" if safe_prompt else ""
+    path = OUTPUT_DIR / f"sample_{timestamp}{suffix}.json"
+
+    save_session(session, path)
+
     print(f"Saved sample to: {path}")
-    print(f"Typed text: {sample.typed_text}")
-    print(f"Keystrokes recorded: {len(sample.keys)}")
+    print(f"Typed text: {session.typed_text}")
+    print(f"Keystrokes recorded: {session.num_keys}")
 
 
 if __name__ == "__main__":
