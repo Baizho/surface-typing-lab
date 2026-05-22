@@ -1,9 +1,8 @@
 # Surface Typing Lab
 
-A research toolkit for studying inter-keystroke timing (IKT) patterns,
-built as a preliminary investigation into the methods of UniKey:
+A repository to look at inter-keystroke timing (IKT) patterns, investigating the methods used in the research paper UniKey:
 Enabling Surface-Based Typing with Commodity Smartwatches via Cross-Modal
-Learning (Tan, Chan, Han — UIST 2025).
+Learning.
 https://doi.org/10.1145/3746059.3747611
 
 ---
@@ -12,7 +11,7 @@ https://doi.org/10.1145/3746059.3747611
 
 UniKey infers typed words from two coarse signals captured by a smartwatch:
 which hand typed each key (L-R), and the time between consecutive keystrokes
-(IKT). This project asks three concrete questions about that approach:
+(IKT). I made this project to look into three different questions that I was curious about:
 
 1. How ambiguous is L-R information alone across a real vocabulary?
 2. Do IKT profiles actually differ between words that share the same L-R pattern?
@@ -67,9 +66,9 @@ achieves the following on a held-out test set with no augmentation:
 | Training data   | 1 session    | Months, 10 participants   |
 
 The top-5 result means the correct word appears in the top 5 predictions
-in all but 5 out of 264 test cases — a retry rate of 1.9%. Direct
+in all but 5 out of 264 test cases - a retry rate of 1.9%. Direct
 comparison with the paper's 6.45% should account for the smaller
-vocabulary; harder vocabulary increases ambiguity.
+vocabulary because harder vocabulary increases ambiguity and also the paper generalized to 10 participants that could have different IKT pattern.
 
 ---
 
@@ -94,7 +93,7 @@ N times, validates each attempt, and stores per-word IKT sequences as JSON.
 ### src/analysis/visualize_ikts.py
 
 Generates three figures: per-word IKT consistency across repetitions,
-side-by-side comparison of ambiguous word pairs, and a vocabulary-wide
+side-by-side comparison of ambiguous word pairs (you can change the script to incorporate the words you want to compare), and a vocabulary-wide
 mean IKT summary colored by L-R pattern group.
 
     PYTHONPATH=. python src/analysis/visualize_ikts.py \
@@ -180,7 +179,3 @@ Each collected session is stored as JSON:
     +-- README.md
 
 ---
-
-Built as preparatory research for investigating surface-based typing
-inference and wearable sensing. Motivated by UniKey (UIST 2025) and
-the open problems it identifies.
