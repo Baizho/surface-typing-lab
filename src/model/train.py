@@ -89,30 +89,46 @@ def augment(ikts: list, n: int, noise_std: float = 0.05) -> list:
 
 # ── data loading ──────────────────────────────────────────────────────────────
 
-def load_dataset(session_path: str, max_len: int, augment_n: int):
+def load_dataset_split(session_path: str, max_len: int,
+                       augment_n: int, test_frac: float, seed: int):
+    """
+    Load session data with a clean train/test split.
+    Split happens on RAW samples per word BEFORE augmentation.
+    Test set is never augmented.
+    """
+    random.seed(seed)
+
     with open(session_path) as f:
         session = json.load(f)
 
-    X, y, words_list = [], [], []
+    X_tr, y_tr = [], []
+    X_te, y_te = [], []
 
     for word, entry in session["words"].items():
         reps = [r["ikts"] for r in entry["repetitions"] if r["ikts"]]
         if not reps:
             continue
 
-        for ikts in reps:
-            X.append(make_feature(ikts, word, max_len))
-            y.append(word)
+        random.shuffle(reps)
+        n_test  = max(1, int(len(reps) * test_frac))
+        te_reps = reps[:n_test]
+        tr_reps = reps[n_test:]
 
-        # augment from real samples
-        for ikts in reps:
+        # Training — augment
+        for ikts in tr_reps:
+            X_tr.append(make_feature(ikts, word, max_len))
+            y_tr.append(word)
             for aug in augment(ikts, augment_n):
-                X.append(make_feature(aug, word, max_len))
-                y.append(word)
+                X_tr.append(make_feature(aug, word, max_len))
+                y_tr.append(word)
 
-        words_list.append(word)
+        # Test — raw only, no augmentation
+        for ikts in te_reps:
+            X_te.append(make_feature(ikts, word, max_len))
+            y_te.append(word)
 
-    return np.array(X, dtype=np.float32), y, words_list
+    return (np.array(X_tr, dtype=np.float32), y_tr,
+            np.array(X_te, dtype=np.float32), y_te)
 
 
 # ── train / eval ──────────────────────────────────────────────────────────────
@@ -122,26 +138,27 @@ def train_and_evaluate(session_path: str, epochs: int = 150,
     set_seed(SEED)
 
     print(f"\n  Loading data from {session_path} ...")
-    X_raw, y_raw, vocabulary = load_dataset(session_path, MAX_LEN, N_AUGMENT)
+    X_tr_raw, y_tr_raw, X_te_raw, y_te_raw = load_dataset_split(
+        session_path, MAX_LEN, N_AUGMENT, test_frac, SEED
+    )
 
     le = LabelEncoder()
-    y_enc = le.fit_transform(y_raw)
+    le.fit(y_tr_raw + y_te_raw)
     num_classes = len(le.classes_)
-    input_dim   = X_raw.shape[1]
+    input_dim   = X_tr_raw.shape[1]
 
-    print(f"  Words: {num_classes}   Samples: {len(X_raw)}"
-          f"   Input dim: {input_dim}")
+    y_tr_enc = le.transform(y_tr_raw)
+    y_te_enc = le.transform(y_te_raw)
 
-    # Train/test split (stratified by word)
-    indices = list(range(len(X_raw)))
-    random.shuffle(indices)
-    split   = int(len(indices) * (1 - test_frac))
-    tr_idx, te_idx = indices[:split], indices[split:]
+    print(f"  Words     : {num_classes}")
+    print(f"  Train     : {len(X_tr_raw)} samples  (augmented)")
+    print(f"  Test      : {len(X_te_raw)} samples  (raw, no augmentation)")
+    print(f"  Input dim : {input_dim}")
 
-    X_tr = torch.tensor(X_raw[tr_idx])
-    y_tr = torch.tensor(y_enc[tr_idx], dtype=torch.long)
-    X_te = torch.tensor(X_raw[te_idx])
-    y_te = torch.tensor(y_enc[te_idx], dtype=torch.long)
+    X_tr = torch.tensor(X_tr_raw)
+    y_tr = torch.tensor(y_tr_enc, dtype=torch.long)
+    X_te = torch.tensor(X_te_raw)
+    y_te = torch.tensor(y_te_enc, dtype=torch.long)
 
     loader = DataLoader(TensorDataset(X_tr, y_tr),
                         batch_size=32, shuffle=True)
@@ -151,7 +168,6 @@ def train_and_evaluate(session_path: str, epochs: int = 150,
     loss_fn = nn.CrossEntropyLoss()
     sched   = torch.optim.lr_scheduler.StepLR(optim, step_size=50, gamma=0.5)
 
-    # Training loop
     print(f"\n  Training for {epochs} epochs ...")
     for epoch in range(1, epochs + 1):
         model.train()
@@ -165,40 +181,35 @@ def train_and_evaluate(session_path: str, epochs: int = 150,
         sched.step()
 
         if epoch % 30 == 0 or epoch == 1:
-            avg = total_loss / len(loader)
-            print(f"  epoch {epoch:3d}  loss {avg:.4f}")
+            print(f"  epoch {epoch:3d}  loss {total_loss / len(loader):.4f}")
 
     # Evaluation
     model.eval()
     with torch.no_grad():
         logits = model(X_te)
 
-    # Top-1 accuracy
     top1 = (logits.argmax(dim=1) == y_te).float().mean().item()
-
-    # Top-5 accuracy
     top5_preds = logits.topk(min(5, num_classes), dim=1).indices
     top5 = sum(
         y_te[i].item() in top5_preds[i].tolist()
         for i in range(len(y_te))
     ) / len(y_te)
 
-    print(f"\n  ── Results ──────────────────────────────")
+    print(f"\n  ── Results (clean eval — test set never augmented) ──")
     print(f"  Test samples : {len(y_te)}")
     print(f"  Top-1 acc    : {top1:.1%}")
     print(f"  Top-5 acc    : {top5:.1%}")
     print(f"  Baseline     : {1/num_classes:.1%}  (random)")
-    print(f"  ─────────────────────────────────────────")
+    print(f"  ──────────────────────────────────────────────────────")
 
-    # Save model
     os.makedirs("models", exist_ok=True)
     torch.save({
-        "model_state":  model.state_dict(),
+        "model_state":   model.state_dict(),
         "label_encoder": list(le.classes_),
-        "input_dim":    input_dim,
-        "num_classes":  num_classes,
-        "top1_acc":     top1,
-        "top5_acc":     top5,
+        "input_dim":     input_dim,
+        "num_classes":   num_classes,
+        "top1_acc":      top1,
+        "top5_acc":      top5,
     }, "models/classifier.pt")
     print(f"  Model saved → models/classifier.pt")
 
