@@ -121,6 +121,20 @@ def save_report(results: dict, path: str = "reports/vocabulary_ambiguity.json"):
         json.dump(out, f, indent=2)
     print(f"Saved to {path}")
 
+def query_word(word: str, words: list) -> None:
+    """Show which words share a pattern with the given word."""
+    results = analyze(words)
+    pattern = get_lr_pattern(word)
+    length = len(word)
+    
+    for (p, l), group in results["sorted_groups"]:
+        if p == pattern and l == length:
+            others = [w for w in group if w != word]
+            print(f"\n  '{word}' → pattern [{pattern}]")
+            print(f"  Confused with {len(others)} other words:")
+            print(f"  {', '.join(sorted(others))}")
+            return
+    print(f"\n  '{word}' has a unique pattern — no ambiguity.")
 
 if __name__ == "__main__":
     from src.data.cefr_a1 import CEFR_A1_WORDS
@@ -128,3 +142,7 @@ if __name__ == "__main__":
     results = analyze(CEFR_A1_WORDS)
     print_report(results, top_n=20)
     save_report(results)
+
+    print("\n  Spotlight — words from the UniKey surface study:")
+    for w in ["place", "would", "there", "thing", "right", "home", "could"]:
+        query_word(w, CEFR_A1_WORDS)
